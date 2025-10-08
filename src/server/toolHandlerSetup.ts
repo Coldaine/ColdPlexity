@@ -14,7 +14,29 @@ import {
 
 import { TOOL_SCHEMAS } from "../schema/toolSchemas.js";
 import type { ChatPerplexityArgs, ToolHandlersRegistry } from "../types/index.js";
-import { logError, logWarn } from "../utils/logging.js";
+import { logError, logInfo, logWarn } from "../utils/logging.js";
+
+/**
+ * Creates a summary of the response content for logging.
+ * @param content - The content of the response.
+ * @returns A string summary.
+ */
+function createResponseSummary(content: any): string {
+  if (typeof content === "string") {
+    const maxLength = 200;
+    const summary = content.substring(0, maxLength);
+    return content.length > maxLength ? `${summary}... (truncated)` : summary;
+  }
+  // For non-string content (like the chat_perplexity object), stringify it.
+  try {
+    const jsonContent = JSON.stringify(content);
+    const maxLength = 300;
+    const summary = jsonContent.substring(0, maxLength);
+    return jsonContent.length > maxLength ? `${summary}... (truncated)` : jsonContent;
+  } catch {
+    return "[Unserializable content]";
+  }
+}
 
 /**
  * Sets up MCP tool handlers for the server
@@ -24,6 +46,7 @@ import { logError, logWarn } from "../utils/logging.js";
 export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegistry): void {
   // Register ListTools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    logInfo("Handling ListTools request");
     return {
       tools: TOOL_SCHEMAS,
     };
@@ -32,10 +55,13 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
   // Register CallTool handler with comprehensive error handling and timeout management
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    const requestId = request.id || "unknown";
+
+    logInfo("Handling CallTool request", { requestId, tool: name, arguments: args });
 
     // Set a timeout for the entire MCP request
     const requestTimeout = setTimeout(() => {
-      logWarn("MCP request is taking too long, this might lead to a timeout");
+      logWarn("MCP request is taking too long, this might lead to a timeout", { requestId, tool: name });
     }, 60000); // 60 seconds warning
 
     try {
@@ -46,7 +72,7 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
         if (name === "chat_perplexity") {
           const chatArgs = (args || {}) as unknown as ChatPerplexityArgs;
           const chatId = chatArgs.chat_id || crypto.randomUUID();
-          return {
+          const responsePayload = {
             content: [
               {
                 type: "text",
@@ -54,13 +80,27 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
               },
             ],
           };
+          logInfo("Successfully handled CallTool request", {
+            requestId,
+            tool: name,
+            responseSummary: createResponseSummary(responsePayload.content[0].text),
+          });
+          return responsePayload;
         }
 
-        return { content: [{ type: "text", text: result }] };
+        const responsePayload = { content: [{ type: "text", text: result }] };
+        logInfo("Successfully handled CallTool request", {
+          requestId,
+          tool: name,
+          responseSummary: createResponseSummary(result),
+        });
+        return responsePayload;
       }
       throw new McpError(ErrorCode.MethodNotFound, `Tool ${name} not found`);
     } catch (error) {
-      logError(`Error executing tool ${name}:`, {
+      logError(`Error executing tool ${name}`, {
+        requestId,
+        tool: name,
         error: error instanceof Error ? error.message : String(error),
       });
 
@@ -68,7 +108,7 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
         const errorMsg = error.message;
 
         if (errorMsg.includes("timeout") || errorMsg.includes("Timed out")) {
-          logError("Timeout detected in MCP request");
+          logError("Timeout detected in MCP request", { requestId, tool: name });
           return {
             content: [
               {
