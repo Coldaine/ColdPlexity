@@ -1,11 +1,7 @@
-/**
- * Tool Handler Setup Module
- * Manages MCP tool registration and request handling logic
- */
-
 import crypto from "node:crypto";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
+  type CallToolRequest,
   CallToolRequestSchema,
   ErrorCode,
   ListToolsRequestSchema,
@@ -17,28 +13,6 @@ import type { ChatPerplexityArgs, ToolHandlersRegistry } from "../types/index.js
 import { logError, logInfo, logWarn } from "../utils/logging.js";
 
 /**
- * Creates a summary of the response content for logging.
- * @param content - The content of the response.
- * @returns A string summary.
- */
-function createResponseSummary(content: any): string {
-  if (typeof content === "string") {
-    const maxLength = 200;
-    const summary = content.substring(0, maxLength);
-    return content.length > maxLength ? `${summary}... (truncated)` : summary;
-  }
-  // For non-string content (like the chat_perplexity object), stringify it.
-  try {
-    const jsonContent = JSON.stringify(content);
-    const maxLength = 300;
-    const summary = jsonContent.substring(0, maxLength);
-    return jsonContent.length > maxLength ? `${summary}... (truncated)` : jsonContent;
-  } catch {
-    return "[Unserializable content]";
-  }
-}
-
-/**
  * Sets up MCP tool handlers for the server
  * @param server - The MCP Server instance
  * @param toolHandlers - Registry of tool handler functions
@@ -46,7 +20,6 @@ function createResponseSummary(content: any): string {
 export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegistry): void {
   // Register ListTools handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    logInfo("Handling ListTools request");
     return {
       tools: TOOL_SCHEMAS,
     };
@@ -54,8 +27,9 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
 
   // Register CallTool handler with comprehensive error handling and timeout management
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    const requestId = request.id || "unknown";
+    const callToolRequest = request as CallToolRequest;
+    const { name, arguments: args } = callToolRequest.params;
+    const requestId = crypto.randomUUID(); // Generate a unique ID for tracking this request
 
     logInfo("Handling CallTool request", { requestId, tool: name, arguments: args });
 
@@ -71,7 +45,7 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
         // Special case for chat to return chat_id
         if (name === "chat_perplexity") {
           const chatArgs = (args || {}) as unknown as ChatPerplexityArgs;
-          const chatId = chatArgs.chat_id || crypto.randomUUID();
+          const chatId = chatArgs?.chat_id || crypto.randomUUID();
           const responsePayload = {
             content: [
               {
@@ -83,7 +57,7 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
           logInfo("Successfully handled CallTool request", {
             requestId,
             tool: name,
-            responseSummary: createResponseSummary(responsePayload.content[0].text),
+            responseSummary: createResponseSummary(responsePayload.content[0]?.text),
           });
           return responsePayload;
         }
@@ -146,4 +120,15 @@ export function setupToolHandlers(server: Server, toolHandlers: ToolHandlersRegi
  */
 export function createToolHandlersRegistry(handlers: ToolHandlersRegistry): ToolHandlersRegistry {
   return handlers;
+}
+
+/**
+ * Creates a summary of the response for logging purposes
+ * @param response - The response text
+ * @returns A truncated summary if the response is long
+ */
+function createResponseSummary(response: string | undefined): string {
+  if (typeof response !== "string") return "non-string response";
+  if (response.length <= 100) return response;
+  return response.substring(0, 100) + "...";
 }

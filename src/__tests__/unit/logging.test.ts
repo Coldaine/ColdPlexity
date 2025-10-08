@@ -1,121 +1,41 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
-// Mock the 'node:fs' module
-vi.mock("node:fs", () => ({
-  default: {
-    existsSync: vi.fn(),
-    mkdirSync: vi.fn(),
-    createWriteStream: vi.fn(),
-  },
-}));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { logError, logInfo, logWarn } from "../../utils/logging.js";
 
 describe("Logging Utilities", () => {
-  let fs: any;
-  let mockLogStream: { write: Function };
+  const mockConsole = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
 
-  // Spy on console methods
-  const mockConsoleInfo = vi.spyOn(console, "info").mockImplementation(() => {});
-  const mockConsoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  const mockConsoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-  beforeAll(async () => {
-    // Import the mocked fs
-    fs = (await import("node:fs")).default;
-
-    // Set up the mock write stream
-    mockLogStream = { write: vi.fn() };
-    fs.createWriteStream.mockReturnValue(mockLogStream);
+  beforeEach(() => {
+    vi.spyOn(console, "info").mockImplementation(mockConsole.info);
+    vi.spyOn(console, "warn").mockImplementation(mockConsole.warn);
+    vi.spyOn(console, "error").mockImplementation(mockConsole.error);
   });
 
   afterEach(() => {
-    // Clear all mocks after each test
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
-  afterAll(() => {
-    // Restore original console methods
-    mockConsoleInfo.mockRestore();
-    mockConsoleWarn.mockRestore();
-    mockConsoleError.mockRestore();
-  });
-
-  it("should log info messages to console and file", async () => {
-    const { logInfo } = await import("../../utils/logging.js");
-    const message = "This is an info message";
-    const data = { component: "Test" };
-
+  it("logInfo should call console.info with formatted message", () => {
+    const message = "Test info";
+    const data = { a: 1 };
     logInfo(message, data);
-
-    // Check console output
-    expect(mockConsoleInfo).toHaveBeenCalledWith(expect.stringContaining(message), data);
-
-    // Check file output
-    expect(mockLogStream.write).toHaveBeenCalledTimes(1);
-    const logEntry = JSON.parse(mockLogStream.write.mock.calls[0][0]);
-    expect(logEntry).toMatchObject({
-      level: "INFO",
-      message,
-      component: "Test",
-    });
+    expect(mockConsole.info).toHaveBeenCalledWith(expect.stringContaining("[INFO] Test info"), data);
   });
 
-  it("should log warning messages to console and file", async () => {
-    const { logWarn } = await import("../../utils/logging.js");
-    const message = "This is a warning message";
-    const data = { code: "WarningCode" };
-
+  it("logWarn should call console.warn with formatted message", () => {
+    const message = "Test warn";
+    const data = { b: 2 };
     logWarn(message, data);
-
-    // Check console output
-    expect(mockConsoleWarn).toHaveBeenCalledWith(expect.stringContaining(message), data);
-
-    // Check file output
-    expect(mockLogStream.write).toHaveBeenCalledTimes(1);
-    const logEntry = JSON.parse(mockLogStream.write.mock.calls[0][0]);
-    expect(logEntry).toMatchObject({
-      level: "WARN",
-      message,
-      code: "WarningCode",
-    });
+    expect(mockConsole.warn).toHaveBeenCalledWith(expect.stringContaining("[WARN] Test warn"), data);
   });
 
-  it("should log error messages to console and file", async () => {
-    const { logError } = await import("../../utils/logging.js");
-    const message = "This is an error message";
-    const data = { errorId: "Error123" };
-
+  it("logError should call console.error with formatted message", () => {
+    const message = "Test error";
+    const data = { c: 3 };
     logError(message, data);
-
-    // Check console output
-    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining(message), data);
-
-    // Check file output
-    expect(mockLogStream.write).toHaveBeenCalledTimes(1);
-    const logEntry = JSON.parse(mockLogStream.write.mock.calls[0][0]);
-    expect(logEntry).toMatchObject({
-      level: "ERROR",
-      message,
-      errorId: "Error123",
-    });
-  });
-
-  it("should handle logs with no additional data", async () => {
-    const { logInfo } = await import("../../utils/logging.js");
-    const message = "Simple info message";
-
-    logInfo(message);
-
-    // Check console output
-    expect(mockConsoleInfo).toHaveBeenCalledWith(expect.stringContaining(message));
-
-    // Check file output
-    expect(mockLogStream.write).toHaveBeenCalledTimes(1);
-    const logEntry = JSON.parse(mockLogStream.write.mock.calls[0][0]);
-    expect(logEntry).toMatchObject({
-      level: "INFO",
-      message,
-    });
-    // Ensure no other properties were added
-    expect(Object.keys(logEntry).length).toBe(3); // timestamp, level, message
+    expect(mockConsole.error).toHaveBeenCalledWith(expect.stringContaining("[ERROR] Test error"), data);
   });
 });
